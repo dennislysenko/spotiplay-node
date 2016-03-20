@@ -57,9 +57,63 @@ app.get('/decrypt', function(req, res) {
 });
 
 pmroute('/playlists', function(req, res, pm) {
-  pm.getPlayListEntries(function(err, data) {
+  pm.getPlayLists(function(err, data) {
     var playlists = data.data.items;
     res.send({ playlists: playlists });
+  })
+});
+
+pmroute('/playlist_entries', function(req, res, pm) {
+  function request(callback, pageToken) {
+    pm.request({
+      method: "POST",
+      url: pm._baseURL + 'plentryfeed',
+      contentType: 'application/json',
+      data: JSON.stringify({'start-token': pageToken})
+    }, function(err, body) {
+      if (err != null) {
+        callback(err, null);
+      } else {
+        var entries = body.data.items;
+
+        if (typeof body.nextPageToken == "string") {
+          // recursive case, more pages
+          request(function(err, newEntries) {
+            if (err != null) {
+              callback(err, null);
+            } else {
+              // add new entries to entries we've already loaded and send those up to the parent frame
+              callback(null, entries.concat(newEntries));
+            }
+          }, body.nextPageToken);
+        } else {
+          // base case, no more pages, just send up what we have. whew
+          callback(null, entries);
+        }
+      }
+    });
+  }
+
+  // jesus this is going to run for a LONG time
+  request(function(err, allEntries) {
+    if (err != null) {
+      res.send({error: err});
+    } else {
+      res.send({count: allEntries.length, entries: allEntries});
+    }
+  });
+
+  //pm.getPlayListEntries(function(err, data) {
+  //  var entries = data.data.items;
+  //  // res.send({ entries: entries });
+  //  res.send(data);
+  //})
+});
+
+pmroute('/all_tracks', function(req, res, pm) {
+  pm.getAllTracks(function(err, data) {
+    var entries = data.data.items;
+    res.send({ entries: entries });
   })
 });
 
