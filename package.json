@@ -5,10 +5,11 @@
   "version": "0.0.1",
   "main": "app.js",
   "dependencies": {
+    "body-parser": "^1.15.0",
     "express": "~4.0.0",
-    "querystring": "~0.2.0",
-    "request": "~2.34.0",
     "node-env-file": "~0.1.4",
-    "playmusic": "~2.1.1"
+    "playmusic": "~2.1.1",
+    "querystring": "~0.2.0",
+    "request": "~2.34.0"
   }
 }

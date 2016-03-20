@@ -16,6 +16,15 @@ env(__dirname + '/.env');
 
 var app = express();
 
+var bodyParser = require('body-parser');
+app.use(bodyParser.json());       // to support JSON-encoded bodies
+app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
+  extended: true
+}));
+
+//app.use(express.json());       // to support JSON-encoded bodies
+//app.use(express.urlencoded()); // to support URL-encoded bodies
+
 //function encrypt(password) {
 //  var key = new Buffer(process.env.ENCRYPTION_KEY, 'base64').toString('binary');
 //  var cipher = crypto.createCipheriv('aes-256-ctr', key);
@@ -30,14 +39,20 @@ function decrypt(password, iv64) {
   return Buffer.concat([decipher.update(encryptdata), decipher.final()]).toString("utf-8");
 }
 
-function pmroute(path, callback) {
-  app.get(path, function(req, res) {
-    if (!req.query.email || !req.query.password) {
-      res.send({ success: false, error: 'Please include an email and a password' });
+function pmroute(type, path, callback) {
+  type.call(app, path, function(req, res) {
+    var source;
+    if (type == app.get) {
+      source = req.query;
     } else {
-      var password = decrypt(req.query.password, req.query.iv);
+      source = req.body;
+    }
+    if (!source.email || !source.password || !source.iv) {
+      res.send({ success: false, error: 'Please include an email an encrypted password, and an iv' });
+    } else {
+      var password = decrypt(source.password, source.iv);
       var pm = new playmusic();
-      pm.init({ email: req.query.email, password: password }, function(err) {
+      pm.init({ email: source.email, password: password }, function(err) {
         if (err) {
           res.send({ success: false, error: 'Error initing play music wrapper: ' + err, error_obj: err, password: password, pass: req.query.password})
         } else {
@@ -56,7 +71,7 @@ app.get('/decrypt', function(req, res) {
   res.send({ decrypted: decrypt(req.query.text) });
 });
 
-pmroute('/playlists', function(req, res, pm) {
+pmroute(app.get, '/playlists', function(req, res, pm) {
   pm.getPlayLists(function(err, data) {
     var playlists = data.data.items;
     res.send({ playlists: playlists });
@@ -99,7 +114,7 @@ function pagedRequest(pm, path, callback) {
   //request();
 }
 
-pmroute('/playlist_entries', function(req, res, pm) {
+pmroute(app.get, '/playlist_entries', function(req, res, pm) {
   pagedRequest(pm, 'plentryfeed', function(err, allEntries) {
     if (err != null) {
       res.send({error: err});
@@ -109,12 +124,46 @@ pmroute('/playlist_entries', function(req, res, pm) {
   });
 });
 
-pmroute('/all_tracks', function(req, res, pm) {
+pmroute(app.get, '/all_tracks', function(req, res, pm) {
   pagedRequest(pm, 'trackfeed', function(err, allEntries) {
     if (err != null) {
       res.send({error: err});
     } else {
       res.send({count: allEntries.length, entries: allEntries});
+    }
+  });
+});
+
+pmroute(app.post, '/remove_entries', function(req, res, pm) {
+  if (typeof req.body.entry_ids != "string") {
+    res.send({success: false, error: "Bad request, need entry_ids in post"});
+  } else {
+    var entryIds = req.body.entry_ids.split(",");
+    var mutations = entryIds.map(function (id) {
+      return {"delete": id}
+    });
+    //res.send({mutations: mutations});
+    pm.request({
+      method: "POST",
+      contentType: "application/json",
+      url: pm._baseURL + 'plentriesbatch?' + querystring.stringify({alt: "json"}),
+      data: JSON.stringify({"mutations": mutations})
+    }, function (err, body) {
+      if (err != null) {
+        res.send({success: false, error: "Error removing playlist entries: " + err});
+      } else {
+        res.send({success: true, body: body});
+      }
+    });
+  }
+});
+
+pmroute(app.post, '/remove_entry', function(req, res, pm) {
+  pm.removePlayListEntry(req.body.entry_id, function(err, body) {
+    if (err != null) {
+      res.send({success: false, error: err});
+    } else {
+      res.send({success: true, body: body});
     }
   });
 });
