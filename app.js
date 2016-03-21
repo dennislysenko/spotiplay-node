@@ -7,6 +7,7 @@ var request = require('request'); // "Request" library
 var querystring = require('querystring');
 var playmusic = require('playmusic');
 var crypto = require('crypto');
+var uuid = require('node-uuid');
 
 //if (!process.env.PORT) {
 // Load environment variables on local setup
@@ -162,6 +163,45 @@ pmroute(app.post, '/remove_entry', function(req, res, pm) {
   pm.removePlayListEntry(req.body.entry_id, function(err, body) {
     if (err != null) {
       res.send({success: false, error: err});
+    } else {
+      res.send({success: true, body: body});
+    }
+  });
+});
+
+pmroute(app.post, '/search', function(req, res, pm) {
+  pm.search(req.body.query, 5, function(err, data) {
+    if (err != null) {
+      res.send({success: false, error: err});
+    } else {
+      res.send({success: true, results: data.entries});
+    }
+  });
+});
+
+pmroute(app.post, '/add_entries', function(req, res, pm) {
+  var mutations = req.body.track_ids.split(",").map(function(songId) {
+    return {
+      "create": {
+        "clientId": uuid.v1(),
+        "creationTimestamp": "-1",
+        "deleted": "false",
+        "lastModifiedTimestamp": "0",
+        "playlistId": req.body.playlist_id,
+        "source": (songId.indexOf("T") === 0 ? "2" : "1"),
+        "trackId": songId
+      }
+    }
+  });
+
+  pm.request({
+    method: "POST",
+    contentType: "application/json",
+    url: pm._baseURL + 'plentriesbatch?' + querystring.stringify({alt: "json"}),
+    data: JSON.stringify({"mutations": mutations})
+  }, function (err, body) {
+    if (err != null) {
+      res.send({success: false, error: "Error adding playlist entries: " + err});
     } else {
       res.send({success: true, body: body});
     }
