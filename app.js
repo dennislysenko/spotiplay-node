@@ -9,11 +9,8 @@ var playmusic = require('playmusic');
 var crypto = require('crypto');
 var uuid = require('node-uuid');
 
-//if (!process.env.PORT) {
-// Load environment variables on local setup
 var env = require('node-env-file');
 env(__dirname + '/.env');
-//}
 
 var app = express();
 
@@ -23,15 +20,6 @@ app.use(bodyParser.urlencoded({     // to support URL-encoded bodies
   extended: true
 }));
 
-//app.use(express.json());       // to support JSON-encoded bodies
-//app.use(express.urlencoded()); // to support URL-encoded bodies
-
-//function encrypt(password) {
-//  var key = new Buffer(process.env.ENCRYPTION_KEY, 'base64').toString('binary');
-//  var cipher = crypto.createCipheriv('aes-256-ctr', key);
-//  return Buffer.concat([cipher.update(password), cipher.final()]).toString("base64");
-//}
-
 function decrypt(password, iv64) {
   var encryptdata = new Buffer(password, 'base64').toString('binary');
   var key = new Buffer(process.env.ENCRYPTION_KEY, 'base64').toString('binary');
@@ -40,22 +28,32 @@ function decrypt(password, iv64) {
   return Buffer.concat([decipher.update(encryptdata), decipher.final()]).toString("utf-8");
 }
 
-function pmroute(type, path, callback) {
-  type.call(app, path, function(req, res) {
+/**
+ * Helper to create an express route with a given HTTP/express verb, a route,
+ * and a callback that takes a PlayMusic instance in addition to the standard request and response objects.
+ */
+function pmroute(verb, route, callback) {
+  verb.call(app, route, function (req, res) {
     var source;
-    if (type == app.get) {
+    if (verb == app.get) {
       source = req.query;
     } else {
       source = req.body;
     }
     if (!source.email || !source.password || !source.iv) {
-      res.send({ success: false, error: 'Please include an email an encrypted password, and an iv' });
+      res.send({success: false, error: 'Please include an email an encrypted password, and an iv'});
     } else {
       var password = decrypt(source.password, source.iv);
       var pm = new playmusic();
-      pm.init({ email: source.email, password: password }, function(err) {
+      pm.init({email: source.email, password: password}, function (err) {
         if (err) {
-          res.send({ success: false, error: 'Error initing play music wrapper: ' + err, error_obj: err, password: password, pass: req.query.password})
+          res.send({
+            success: false,
+            error: 'Error initing play music wrapper: ' + err,
+            error_obj: err,
+            password: password,
+            pass: req.query.password
+          })
         } else {
           callback(req, res, pm);
         }
@@ -64,21 +62,20 @@ function pmroute(type, path, callback) {
   });
 }
 
-app.get('/encrypt', function(req, res) {
-  res.send({ crypted: encrypt(req.query.text) });
-});
-
-app.get('/decrypt', function(req, res) {
-  res.send({ decrypted: decrypt(req.query.text) });
-});
-
-pmroute(app.get, '/playlists', function(req, res, pm) {
-  pm.getPlayLists(function(err, data) {
+pmroute(app.get, '/playlists', function (req, res, pm) {
+  pm.getPlayLists(function (err, data) {
     var playlists = data.data.items;
-    res.send({ playlists: playlists });
+    res.send({playlists: playlists});
   })
 });
 
+/**
+ * Helper method for paged requests that uses a hellish form of async combined with recursion to consolidate all the
+ * pages together into one array before calling the callback.
+ *
+ * I really should have used promises for this since this code is going to be public.
+ * No regrets though, it worked first try.
+ */
 function pagedRequest(pm, path, callback) {
   function request(callback, pageToken) {
     pm.request({
@@ -86,7 +83,7 @@ function pagedRequest(pm, path, callback) {
       url: pm._baseURL + path,
       contentType: 'application/json',
       data: JSON.stringify({'start-token': pageToken})
-    }, function(err, body) {
+    }, function (err, body) {
       if (err != null) {
         callback(err, null);
       } else {
@@ -94,7 +91,7 @@ function pagedRequest(pm, path, callback) {
 
         if (typeof body.nextPageToken == "string") {
           // recursive case, more pages
-          request(function(err, newEntries) {
+          request(function (err, newEntries) {
             if (err != null) {
               callback(err, null);
             } else {
@@ -110,13 +107,11 @@ function pagedRequest(pm, path, callback) {
     });
   }
 
-  // jesus this is going to run for a LONG time
   request(callback);
-  //request();
 }
 
-pmroute(app.get, '/playlist_entries', function(req, res, pm) {
-  pagedRequest(pm, 'plentryfeed', function(err, allEntries) {
+pmroute(app.get, '/playlist_entries', function (req, res, pm) {
+  pagedRequest(pm, 'plentryfeed', function (err, allEntries) {
     if (err != null) {
       res.send({error: err});
     } else {
@@ -125,8 +120,8 @@ pmroute(app.get, '/playlist_entries', function(req, res, pm) {
   });
 });
 
-pmroute(app.get, '/all_tracks', function(req, res, pm) {
-  pagedRequest(pm, 'trackfeed', function(err, allEntries) {
+pmroute(app.get, '/all_tracks', function (req, res, pm) {
+  pagedRequest(pm, 'trackfeed', function (err, allEntries) {
     if (err != null) {
       res.send({error: err});
     } else {
@@ -135,7 +130,7 @@ pmroute(app.get, '/all_tracks', function(req, res, pm) {
   });
 });
 
-pmroute(app.post, '/remove_entries', function(req, res, pm) {
+pmroute(app.post, '/remove_entries', function (req, res, pm) {
   if (typeof req.body.entry_ids != "string") {
     res.send({success: false, error: "Bad request, need entry_ids in post"});
   } else {
@@ -143,7 +138,7 @@ pmroute(app.post, '/remove_entries', function(req, res, pm) {
     var mutations = entryIds.map(function (id) {
       return {"delete": id}
     });
-    //res.send({mutations: mutations});
+
     pm.request({
       method: "POST",
       contentType: "application/json",
@@ -159,8 +154,8 @@ pmroute(app.post, '/remove_entries', function(req, res, pm) {
   }
 });
 
-pmroute(app.post, '/remove_entry', function(req, res, pm) {
-  pm.removePlayListEntry(req.body.entry_id, function(err, body) {
+pmroute(app.post, '/remove_entry', function (req, res, pm) {
+  pm.removePlayListEntry(req.body.entry_id, function (err, body) {
     if (err != null) {
       res.send({success: false, error: err});
     } else {
@@ -169,8 +164,8 @@ pmroute(app.post, '/remove_entry', function(req, res, pm) {
   });
 });
 
-pmroute(app.post, '/search', function(req, res, pm) {
-  pm.search(req.body.query, 5, function(err, data) {
+pmroute(app.post, '/search', function (req, res, pm) {
+  pm.search(req.body.query, 5, function (err, data) {
     if (err != null) {
       res.send({success: false, error: err});
     } else {
@@ -179,8 +174,8 @@ pmroute(app.post, '/search', function(req, res, pm) {
   });
 });
 
-pmroute(app.post, '/add_entries', function(req, res, pm) {
-  var mutations = req.body.track_ids.split(",").map(function(songId) {
+pmroute(app.post, '/add_entries', function (req, res, pm) {
+  var mutations = req.body.track_ids.split(",").map(function (songId) {
     return {
       "create": {
         "clientId": uuid.v1(),
@@ -206,10 +201,6 @@ pmroute(app.post, '/add_entries', function(req, res, pm) {
       res.send({success: true, body: body});
     }
   });
-});
-
-app.get('/key', function(req, res) {
-  res.send({ key: new Buffer(process.env.ENCRYPTION_KEY, 'base64').toString('binary') })
 });
 
 var port = process.env.PORT || 7045;
